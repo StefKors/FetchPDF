@@ -76,6 +76,8 @@ struct ContentView: View {
                         }
                     }
                 }
+                .scrollContentBackground(.hidden)
+                .listStyle(.sidebar)
 
                 if !links.isEmpty {
                     HStack {
@@ -113,6 +115,7 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .padding()
+        .containerBackground(.thinMaterial, for: .window)
     }
 
     private func downloadSelectedPDFs() async {
