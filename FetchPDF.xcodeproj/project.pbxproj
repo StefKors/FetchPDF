@@ -8,10 +8,12 @@
 
 /* Begin PBXBuildFile section */
 		8AE0E6A32DBFFC3900330A27 /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = 8AE0E6A22DBFFC3900330A27 /* SwiftSoup */; };
+		8AE0E6A52DC00A7700330A27 /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = 8AE0E6A42DC00A7300330A27 /* README.md */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		8AE0E6922DBFF9F800330A27 /* FetchPDF.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FetchPDF.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8AE0E6A42DC00A7300330A27 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -37,6 +39,7 @@
 		8AE0E6892DBFF9F800330A27 = {
 			isa = PBXGroup;
 			children = (
+				8AE0E6A42DC00A7300330A27 /* README.md */,
 				8AE0E6942DBFF9F800330A27 /* FetchPDF */,
 				8AE0E6932DBFF9F800330A27 /* Products */,
 			);
@@ -118,6 +121,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8AE0E6A52DC00A7700330A27 /* README.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
