@@ -158,7 +158,7 @@ struct ContentView: View {
                 downloadedFolderPath = destinationFolderURL
             }
         } catch {
-            print("Failed to create directory: \(error.localizedDescription)")
+            print("Failed to create directory for: \(error.localizedDescription)")
         }
     }
 
