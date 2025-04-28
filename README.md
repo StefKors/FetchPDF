@@ -7,7 +7,7 @@
 <img src="https://stefkors.com/api/platform/index.svg?os=macos" />
 
 <img src="/screenshot.png">
-<img src="/screenshot-1.png">
-<img src="/screenshot-2.png">
-<img src="/screenshot-3.png">
+<img src="/Screenshot-1.png">
+<img src="/Screenshot-2.png">
+<img src="/Screenshot-3.png">
 
