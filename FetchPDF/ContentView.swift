@@ -19,6 +19,8 @@ struct ContentView: View {
     @State private var error: Error?
     @State private var isDownloading = false
     @State private var downloadProgress: Double = 0
+    @State private var downloadedFolderPath: URL?
+    @State private var selection: Set<LinkItem> = []
 
     var selectedCount: Int {
         links.filter(\.isSelected).count
@@ -27,25 +29,6 @@ struct ContentView: View {
     var body: some View {
         VStack {
             HStack {
-                if let _ = URL(string: url) {
-                    Image(systemName: "checkmark.seal.fill")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 24, height: 24)
-                        .foregroundStyle(.green)
-                } else if url.isEmpty {
-                    Image(systemName: "circle.dotted")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 24, height: 24)
-                } else {
-                    Image(systemName: "xmark.circle.fill")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 24, height: 24)
-                        .foregroundStyle(.red)
-                }
-
                 TextField("Enter URL", text: $url)
                     .textFieldStyle(.roundedBorder)
                     .autocorrectionDisabled()
@@ -57,6 +40,7 @@ struct ContentView: View {
                 }
                 .disabled(url.isEmpty || isLoading)
                 .buttonStyle(.borderedProminent)
+                .tint(!url.isEmpty ? .primary : .blue)
             }
 
             if isLoading {
@@ -65,22 +49,54 @@ struct ContentView: View {
                 Text(error.localizedDescription)
                     .foregroundStyle(.red)
             } else {
-                List {
-                    ForEach($links) { $link in
-                        HStack {
-                            Toggle("", isOn: $link.isSelected)
-                                .toggleStyle(.checkbox)
-                            Text(link.url)
+                List($links, selection: $selection) { $link in
+                    HStack {
+                        Toggle("", isOn: $link.isSelected)
+                            .toggleStyle(.checkbox)
+                        Text(link.url)
+                    }
+                    .tag(link)
+                    .contextMenu {
+                        if !link.isSelected {
+                            Button("Select Links") {
+                                for (index, maplink) in links.enumerated() {
+                                    if selection.contains(maplink) {
+                                        links[index].isSelected = true
+                                    }
+                                }
+                            }
+                        } else {
+                            Button("Unselect Links") {
+                                for (index, maplink) in links.enumerated() {
+                                    if selection.contains(maplink) {
+                                        links[index].isSelected = false
+                                    }
+                                }
+                            }
                         }
                     }
                 }
 
                 if !links.isEmpty {
-                    VStack {
+                    HStack {
                         if isDownloading {
                             ProgressView(value: downloadProgress) {
                                 Text("Downloading PDFs...")
                             }
+
+                            if Int(downloadProgress) == links.count {
+                                Button("Open Folder") {
+                                    NSWorkspace.shared.open(.downloadsDirectory)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .tint(.green)
+                            } else {
+                                Button("Cancel") {
+                                    isDownloading = false
+                                    downloadProgress = 0
+                                }
+                            }
+
                         } else {
                             Button("Download (\(selectedCount)) PDFs") {
                                 Task {
@@ -91,7 +107,7 @@ struct ContentView: View {
                             .buttonStyle(.borderedProminent)
                         }
                     }
-                    .padding(.vertical)
+                    .padding(.vertical, 6)
                 }
             }
         }
@@ -103,8 +119,10 @@ struct ContentView: View {
         guard let baseURL = URL(string: url),
               let hostname = baseURL.host else { return }
 
-        isDownloading = true
-        downloadProgress = 0
+        withAnimation(.snappy) {
+            isDownloading = true
+            downloadProgress = 0
+        }
 
         let downloadsFolderURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
         let destinationFolderURL = downloadsFolderURL.appendingPathComponent(hostname, isDirectory: true)
@@ -116,32 +134,39 @@ struct ContentView: View {
             var completedDownloads = 0
 
             for link in selectedLinks {
+                guard isLoading else { break }
                 guard let pdfURL = URL(string: link.url) else { continue }
                 let filename = pdfURL.lastPathComponent
                 let destinationURL = destinationFolderURL.appendingPathComponent(filename)
-
+                
                 do {
                     let (downloadURL, _) = try await URLSession.shared.download(from: pdfURL)
                     try FileManager.default.moveItem(at: downloadURL, to: destinationURL)
 
                     completedDownloads += 1
-                    downloadProgress = Double(completedDownloads) / Double(selectedLinks.count)
+                    withAnimation(.snappy) {
+                        downloadProgress = Double(completedDownloads) / Double(selectedLinks.count)
+                    }
                 } catch {
                     print("Failed to download PDF: \(error.localizedDescription)")
                 }
             }
+            withAnimation(.snappy) {
+                downloadedFolderPath = destinationFolderURL
+            }
         } catch {
             print("Failed to create directory: \(error.localizedDescription)")
         }
-
-        isDownloading = false
-        downloadProgress = 0
     }
 
     private func fetchLinks() async {
-        isLoading = true
-        error = nil
-        links.removeAll()
+        withAnimation(.snappy) {
+            isLoading = true
+            error = nil
+            links.removeAll()
+            isDownloading = false
+            downloadProgress = 0
+        }
 
         guard let baseURL = URL(string: url) else {
             error = URLError(.badURL)
@@ -166,25 +191,31 @@ struct ContentView: View {
             for link in links {
                 let href = try link.attr("href")
                 if !href.isEmpty {
-                    if let absoluteURL = URL(string: href, relativeTo: baseURL)?.absoluteString {
-                        let isPDF = absoluteURL.lowercased().hasSuffix(".pdf")
-                        self.links.append(LinkItem(url: absoluteURL, isSelected: isPDF))
-                    } else if let absoluteURL = URL(string: href)?.absoluteString {
-                        let isPDF = absoluteURL.lowercased().hasSuffix(".pdf")
-                        self.links.append(LinkItem(url: absoluteURL, isSelected: isPDF))
+                    withAnimation(.snappy) {
+                        if let absoluteURL = URL(string: href, relativeTo: baseURL)?.absoluteString {
+                            let isPDF = absoluteURL.lowercased().hasSuffix(".pdf")
+                            self.links.append(LinkItem(url: absoluteURL, isSelected: isPDF))
+                        } else if let absoluteURL = URL(string: href)?.absoluteString {
+                            let isPDF = absoluteURL.lowercased().hasSuffix(".pdf")
+                            self.links.append(LinkItem(url: absoluteURL, isSelected: isPDF))
+                        }
                     }
                 }
             }
 
-            isLoading = false
+            withAnimation(.snappy) {
+                isLoading = false
+            }
         } catch {
-            self.error = error
-            isLoading = false
+            withAnimation(.snappy) {
+                self.error = error
+                isLoading = false
+            }
         }
     }
 }
 
-struct LinkItem: Identifiable {
+struct LinkItem: Identifiable, Hashable {
     let id = UUID()
     let url: String
     var isSelected: Bool
