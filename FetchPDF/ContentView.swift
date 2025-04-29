@@ -7,13 +7,17 @@
 
 import SwiftUI
 import SwiftSoup
+import os
 
 /// This is an app that finds all the links on a webpage
 /// Then lists all the links in a list with a check box toggle in front of it
 /// The user can then select which links they want to download and download them
 
+let logger = Logger()
+
 struct ContentView: View {
     @AppStorage("url") private var url: String = ""
+    @AppStorage("urlHistory") private var urlHistory: [String] = []
     @State private var links: [LinkItem] = []
     @State private var isLoading = false
     @State private var error: Error?
@@ -28,28 +32,13 @@ struct ContentView: View {
 
     var body: some View {
         VStack {
-            HStack {
-                TextField("Enter URL", text: $url)
-                    .textFieldStyle(.roundedBorder)
-                    .autocorrectionDisabled()
-
-                Button("Fetch Links") {
-                    Task {
-                        await fetchLinks()
-                    }
-                }
-                .disabled(url.isEmpty || isLoading)
-                .buttonStyle(.borderedProminent)
-                .tint(!url.isEmpty ? .primary : .blue)
-            }
-
-            if isLoading {
-                ProgressView()
-            } else if let error {
-                Text(error.localizedDescription)
-                    .foregroundStyle(.red)
-            } else {
-                List($links, selection: $selection) { $link in
+            List($links, selection: $selection) { $link in
+                if isLoading {
+                    ProgressView()
+                } else if let error {
+                    Text(error.localizedDescription)
+                        .foregroundStyle(.red)
+                } else {
                     HStack {
                         Toggle("", isOn: $link.isSelected)
                             .toggleStyle(.checkbox)
@@ -76,41 +65,53 @@ struct ContentView: View {
                         }
                     }
                 }
-                .scrollContentBackground(.hidden)
-                .listStyle(.sidebar)
-
-                if !links.isEmpty {
-                    HStack {
-                        if isDownloading {
-                            ProgressView(value: downloadProgress) {
-                                Text("Downloading PDFs...")
-                            }
-
-                            if Int(downloadProgress) == links.count {
-                                Button("Open Folder") {
-                                    NSWorkspace.shared.open(.downloadsDirectory)
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .tint(.green)
-                            } else {
-                                Button("Cancel") {
-                                    isDownloading = false
-                                    downloadProgress = 0
-                                }
-                            }
-
-                        } else {
-                            Button("Download (\(selectedCount)) PDFs") {
-                                Task {
-                                    await downloadSelectedPDFs()
-                                }
-                            }
-                            .disabled(selectedCount == 0)
-                            .buttonStyle(.borderedProminent)
-                        }
-                    }
-                    .padding(.vertical, 6)
+            }
+            .scrollContentBackground(.hidden)
+            .listStyle(.sidebar)
+            .searchable(text: $url, placement: .sidebar)
+            .searchSuggestions {
+                ForEach(urlHistory, id: \.self) { historyUrl in
+                    Text(historyUrl).searchCompletion(historyUrl)
                 }
+            }
+            .onSubmit(of: .search) {
+                if !url.isEmpty && !urlHistory.contains(url) {
+                    urlHistory.append(url)
+                }
+                Task {
+                    await fetchLinks()
+                }
+            }
+
+            if !links.isEmpty {
+                HStack {
+                    if isDownloading {
+                        ProgressView("Downloading PDFs...", value: downloadProgress, total: Double(selectedCount))
+
+                        if downloadProgress == Double(selectedCount) {
+                            Button("Open Folder") {
+                                NSWorkspace.shared.open(.downloadsDirectory)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.green)
+                        } else {
+                            Button("Cancel") {
+                                isDownloading = false
+                                downloadProgress = 0
+                            }
+                        }
+
+                    } else {
+                        Button("Download (\(selectedCount)) PDFs") {
+                            Task {
+                                await downloadSelectedPDFs()
+                            }
+                        }
+                        .disabled(selectedCount == 0)
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
+                .padding(.vertical, 6)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -126,39 +127,56 @@ struct ContentView: View {
             isDownloading = true
             downloadProgress = 0
         }
+        logger.info("[Download \(Int(downloadProgress))/\(selectedCount)] Start download of selected PDFs (\(selectedCount))")
 
         let downloadsFolderURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first!
         let destinationFolderURL = downloadsFolderURL.appendingPathComponent(hostname, isDirectory: true)
 
         do {
+            // Remove existing folder if it exists
+            if FileManager.default.fileExists(atPath: destinationFolderURL.path) {
+                logger.info("[Download \(Int(downloadProgress))/\(selectedCount)] Removing existing folder at \(destinationFolderURL.path))")
+                try FileManager.default.removeItem(at: destinationFolderURL)
+            }
+
+            logger.info("[Download \(Int(downloadProgress))/\(selectedCount)] creating folder \(destinationFolderURL.path)")
             try FileManager.default.createDirectory(at: destinationFolderURL, withIntermediateDirectories: true)
 
             let selectedLinks = links.filter(\.isSelected)
-            var completedDownloads = 0
 
-            for link in selectedLinks {
-                guard isLoading else { break }
-                guard let pdfURL = URL(string: link.url) else { continue }
-                let filename = pdfURL.lastPathComponent
-                let destinationURL = destinationFolderURL.appendingPathComponent(filename)
-                
-                do {
-                    let (downloadURL, _) = try await URLSession.shared.download(from: pdfURL)
-                    try FileManager.default.moveItem(at: downloadURL, to: destinationURL)
-
-                    completedDownloads += 1
-                    withAnimation(.snappy) {
-                        downloadProgress = Double(completedDownloads) / Double(selectedLinks.count)
-                    }
-                } catch {
-                    print("Failed to download PDF: \(error.localizedDescription)")
-                }
+            logger.info("[Download \(Int(downloadProgress))/\(selectedCount)] starting iterating over links")
+            await selectedLinks.asyncForEach { link in
+                await downloadLink(link: link, destinationFolderURL: destinationFolderURL)
             }
+
+            logger.info("[Download \(Int(downloadProgress))/\(selectedCount)] download finished exiting")
             withAnimation(.snappy) {
                 downloadedFolderPath = destinationFolderURL
             }
         } catch {
-            print("Failed to create directory for: \(error.localizedDescription)")
+            logger.error("[Download \(Int(downloadProgress))/\(selectedCount)] Failed to create directory for: \(error.localizedDescription)")
+        }
+    }
+
+    private func downloadLink(link: LinkItem, destinationFolderURL: URL) async {
+        logger.info("[Download \(Int(downloadProgress))/\(selectedCount)] starting iterating over links")
+        guard let pdfURL = URL(string: link.url) else { return }
+        let filename = pdfURL.lastPathComponent
+        let destinationURL = destinationFolderURL.appendingPathComponent(filename)
+
+        do {
+            logger.info("[Download \(Int(downloadProgress))/\(selectedCount)] fetching pdf from \(pdfURL)")
+            let (downloadURL, _) = try await URLSession.shared.download(from: pdfURL)
+
+            logger.info("[Download \(Int(downloadProgress))/\(selectedCount)] moving downloaded pdf from \(downloadURL) to \(destinationURL)")
+            try FileManager.default.moveItem(at: downloadURL, to: destinationURL)
+
+            withAnimation(.snappy) {
+                logger.info("[Download \(Int(downloadProgress))/\(selectedCount)] updating download progress")
+                downloadProgress += 1
+            }
+        } catch {
+            logger.error("[Download \(Int(downloadProgress))/\(selectedCount)] Failed to download PDF: \(error.localizedDescription)")
         }
     }
 
